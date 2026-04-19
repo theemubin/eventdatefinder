@@ -1,40 +1,37 @@
-import fs from "node:fs";
-import path from "node:path";
+import mongoose from "mongoose";
 
-import { fileURLToPath } from "node:url";
+const eventSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  description: String,
+  allowedStartDate: String,
+  allowedEndDate: String,
+  createdAt: { type: Date, default: Date.now }
+});
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DB_PATH = path.resolve(__dirname, "../data/db.json");
+const participantSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  eventId: { type: String, required: true, index: true },
+  name: { type: String, required: true },
+  startDate: String,
+  endDate: String,
+  excludedDates: [String],
+  editToken: String,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
 
-function ensureDbFile() {
-  const dbDir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+export const Event = mongoose.model("Event", eventSchema);
+export const Participant = mongoose.model("Participant", participantSchema);
+
+export async function connectDb() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.warn("MONGODB_URI not set, using local dev DB");
+    // Fallback for local dev if they have mongo running
+    await mongoose.connect("mongodb://localhost:27017/whenarewemeeting");
+  } else {
+    await mongoose.connect(uri);
   }
-  if (!fs.existsSync(DB_PATH)) {
-    const initial = { events: [], participants: [] };
-    fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2));
-  }
-}
-
-function loadDb() {
-  ensureDbFile();
-  const raw = fs.readFileSync(DB_PATH, "utf8");
-  return JSON.parse(raw);
-}
-
-function saveDb(db) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
-}
-
-export function readDb() {
-  return loadDb();
-}
-
-export function writeDb(mutator) {
-  const db = loadDb();
-  mutator(db);
-  saveDb(db);
-  return db;
+  console.log("Connected to MongoDB");
 }

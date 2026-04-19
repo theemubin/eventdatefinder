@@ -9,11 +9,16 @@ import {
   normalizeExcludedDates,
   parseIsoDate
 } from "./dateUtils.js";
-import { readDb, writeDb } from "./store.js";
+import { connectDb, Event, Participant } from "./store.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const nanoid = customAlphabet("123456789abcdefghijkmnopqrstuvwxyz", 8);
+
+// Connect to MongoDB
+connectDb().catch(err => {
+  console.error("Failed to connect to MongoDB", err);
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,248 +32,168 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString() });
 });
 
-app.get("/api/events", (_req, res) => {
-  cleanupOldEvents();
-  const db = readDb();
-  const nowIso = new Date().toISOString().slice(0, 10);
-
-  const events = db.events
-    .map((event) => {
-      const participantCount = db.participants.filter(
-        (p) => p.eventId === event.id
-      ).length;
-      const isActive = event.allowedEndDate
-        ? event.allowedEndDate >= nowIso
-        : true;
+app.get("/api/events", async (_req, res) => {
+  try {
+    const nowIso = new Date().toISOString().slice(0, 10);
+    const eventsData = await Event.find().sort({ createdAt: -1 }).lean();
+    
+    // Enrich with participant counts
+    const events = await Promise.all(eventsData.map(async (event) => {
+      const participantCount = await Participant.countDocuments({ eventId: event.id });
+      const isActive = !event.allowedEndDate || event.allowedEndDate >= nowIso;
       return {
         ...event,
         participantCount,
         isActive
       };
-    })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }));
 
-  res.json({ events });
+    res.json({ events });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-function cleanupOldEvents() {
-  const db = readDb();
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const thirtyDaysAgoIso = thirtyDaysAgo.toISOString().slice(0, 10);
+app.post("/api/events", async (req, res) => {
+  try {
+    const { name, description, allowedStartDate, allowedEndDate } = req.body || {};
+    if (!name || typeof name !== "string") return res.status(400).json({ error: "Event name is required" });
+    if (!isIsoDate(allowedStartDate) || !isIsoDate(allowedEndDate)) return res.status(400).json({ error: "Start and End dates are required" });
 
-  writeDb((dbMut) => {
-    const originalCount = dbMut.events.length;
-    dbMut.events = dbMut.events.filter(event => {
-      if (!event.createdAt) return true;
-      const isRecent = event.createdAt.slice(0, 10) >= thirtyDaysAgoIso;
-      const isNotExpired = !event.allowedEndDate || event.allowedEndDate >= thirtyDaysAgoIso;
-      return isRecent || isNotExpired;
-    });
-    
-    if (dbMut.events.length !== originalCount) {
-      const remainingIds = new Set(dbMut.events.map(e => e.id));
-      dbMut.participants = dbMut.participants.filter(p => remainingIds.has(p.eventId));
-    }
-  });
-}
+    const eventId = nanoid();
+    const event = await new Event({
+      id: eventId,
+      name: name.trim(),
+      description: typeof description === "string" ? description.trim() : "",
+      allowedStartDate,
+      allowedEndDate
+    }).save();
 
-app.post("/api/events", (req, res) => {
-  const { name, description, allowedStartDate, allowedEndDate } = req.body || {};
-  if (!name || typeof name !== "string") {
-    return res.status(400).json({ error: "Event name is required" });
+    res.status(201).json({ event, eventUrl: `/event.html?eventId=${eventId}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  if (!isIsoDate(allowedStartDate) || !isIsoDate(allowedEndDate)) {
-    return res.status(400).json({
-      error: "allowedStartDate and allowedEndDate are required (YYYY-MM-DD)"
-    });
-  }
-
-  const allowedStart = parseIsoDate(allowedStartDate);
-  const allowedEnd = parseIsoDate(allowedEndDate);
-  if (!allowedStart || !allowedEnd || allowedStart > allowedEnd) {
-    return res.status(400).json({ error: "Event date range is invalid" });
-  }
-
-  const eventId = nanoid();
-  const now = new Date().toISOString();
-  const event = {
-    id: eventId,
-    name: name.trim(),
-    description: typeof description === "string" ? description.trim() : "",
-    allowedStartDate,
-    allowedEndDate,
-    createdAt: now
-  };
-
-  writeDb((db) => {
-    db.events.push(event);
-  });
-
-  res.status(201).json({
-    event,
-    eventUrl: `/event.html?eventId=${eventId}`
-  });
 });
 
-app.get("/api/events/:eventId", (req, res) => {
-  const { eventId } = req.params;
-  const db = readDb();
-  const event = db.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
+app.get("/api/events/:eventId", async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await Event.findOne({ id: eventId }).lean();
+    if (!event) return res.status(404).json({ error: "Event not found" });
 
-  const participants = db.participants
-    .filter((p) => p.eventId === eventId)
-    .map((p) => sanitizeParticipant(p));
+    const participantsRaw = await Participant.find({ eventId }).lean();
+    const participants = participantsRaw.map(p => sanitizeParticipant(p));
+    const summary = summarizeEventParticipants(participants);
 
-  const summary = summarizeEventParticipants(participants);
-  res.json({ event, participants, summary });
-});
-
-app.post("/api/events/:eventId/participants", (req, res) => {
-  const { eventId } = req.params;
-  const db = readDb();
-  const event = db.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
-
-  const payload = validateParticipantPayload(req.body, event);
-  if (!payload.ok) return res.status(400).json({ error: payload.error });
-
-  const participantId = nanoid();
-  const editToken = nanoid() + nanoid();
-  const now = new Date().toISOString();
-
-  const participant = {
-    id: participantId,
-    eventId,
-    name: payload.value.name,
-    startDate: payload.value.startDate,
-    endDate: payload.value.endDate,
-    excludedDates: payload.value.excludedDates,
-    editToken,
-    createdAt: now,
-    updatedAt: now
-  };
-
-  writeDb((dbMut) => {
-    dbMut.participants.push(participant);
-  });
-
-  res.status(201).json({
-    participant: sanitizeParticipant(participant),
-    editUrl: `/event.html?eventId=${eventId}&participantId=${participantId}&token=${editToken}`
-  });
-});
-
-app.put("/api/events/:eventId/participants/:participantId", (req, res) => {
-  const { eventId, participantId } = req.params;
-  const { token } = req.body || {};
-  if (!token || typeof token !== "string") {
-    return res.status(400).json({ error: "Valid edit token is required" });
+    res.json({ event, participants, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
+});
 
-  const dbForEvent = readDb();
-  const event = dbForEvent.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
+app.post("/api/events/:eventId/participants", async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await Event.findOne({ id: eventId }).lean();
+    if (!event) return res.status(404).json({ error: "Event not found" });
 
-  const payload = validateParticipantPayload(req.body, event);
-  if (!payload.ok) return res.status(400).json({ error: payload.error });
+    const payload = validateParticipantPayload(req.body, event);
+    if (!payload.ok) return res.status(400).json({ error: payload.error });
 
-  let updated;
-  const db = writeDb((dbMut) => {
-    const idx = dbMut.participants.findIndex(
-      (p) => p.id === participantId && p.eventId === eventId
-    );
-    if (idx === -1) return;
-
-    const existing = dbMut.participants[idx];
-    if (existing.editToken !== token) return;
-
-    dbMut.participants[idx] = {
-      ...existing,
+    const participantId = nanoid();
+    const editToken = nanoid() + nanoid();
+    const participant = await new Participant({
+      id: participantId,
+      eventId,
       name: payload.value.name,
       startDate: payload.value.startDate,
       endDate: payload.value.endDate,
       excludedDates: payload.value.excludedDates,
-      updatedAt: new Date().toISOString()
-    };
-    updated = dbMut.participants[idx];
-  });
+      editToken
+    }).save();
 
-  const exists = db.participants.find(
-    (p) => p.id === participantId && p.eventId === eventId
-  );
-  if (!exists) return res.status(404).json({ error: "Participant not found" });
-  if (!updated) return res.status(403).json({ error: "Invalid token" });
-
-  res.json({ participant: sanitizeParticipant(updated) });
-});
-
-app.delete("/api/events/:eventId/participants/:participantId", (req, res) => {
-  const { eventId, participantId } = req.params;
-  const { token } = req.query;
-  if (!token || typeof token !== "string") {
-    return res.status(400).json({ error: "Valid token query parameter is required" });
+    res.status(201).json({
+      participant: sanitizeParticipant(participant),
+      editUrl: `/event.html?eventId=${eventId}&participantId=${participantId}&token=${editToken}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const dbRead = readDb();
-  const event = dbRead.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
-
-  let deleted = false;
-  const db = writeDb((dbMut) => {
-    const idx = dbMut.participants.findIndex(
-      (p) => p.id === participantId && p.eventId === eventId
-    );
-    if (idx === -1) return;
-    if (dbMut.participants[idx].editToken !== token) return;
-
-    dbMut.participants.splice(idx, 1);
-    deleted = true;
-  });
-
-  const exists = db.participants.find(
-    (p) => p.id === participantId && p.eventId === eventId
-  );
-  if (!exists && !deleted) return res.status(404).json({ error: "Participant not found" });
-  if (!deleted) return res.status(403).json({ error: "Invalid token" });
-
-  res.status(204).send();
 });
 
-app.delete("/api/events/:eventId", (req, res) => {
-  const { eventId } = req.params;
-  const dbRead = readDb();
-  const event = dbRead.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
+app.put("/api/events/:eventId/participants/:participantId", async (req, res) => {
+  try {
+    const { eventId, participantId } = req.params;
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: "Token required" });
 
-  let deleted = false;
-  writeDb((dbMut) => {
-    const eventIdx = dbMut.events.findIndex((e) => e.id === eventId);
-    if (eventIdx !== -1) {
-      dbMut.events.splice(eventIdx, 1);
-      // Also delete all participants for this event
-      dbMut.participants = dbMut.participants.filter((p) => p.eventId !== eventId);
-      deleted = true;
-    }
-  });
+    const event = await Event.findOne({ id: eventId }).lean();
+    if (!event) return res.status(404).json({ error: "Event not found" });
 
-  if (!deleted) return res.status(404).json({ error: "Event not found" });
-  res.status(204).send();
+    const payload = validateParticipantPayload(req.body, event);
+    if (!payload.ok) return res.status(400).json({ error: payload.error });
+
+    const updated = await Participant.findOneAndUpdate(
+      { id: participantId, eventId, editToken: token },
+      {
+        name: payload.value.name,
+        startDate: payload.value.startDate,
+        endDate: payload.value.endDate,
+        excludedDates: payload.value.excludedDates,
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).lean();
+
+    if (!updated) return res.status(403).json({ error: "Invalid token or participant not found" });
+    res.json({ participant: sanitizeParticipant(updated) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get("/api/events/:eventId/summary", (req, res) => {
-  const { eventId } = req.params;
-  const db = readDb();
-  const event = db.events.find((e) => e.id === eventId);
-  if (!event) return res.status(404).json({ error: "Event not found" });
+app.delete("/api/events/:eventId/participants/:participantId", async (req, res) => {
+  try {
+    const { eventId, participantId } = req.params;
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: "Token required" });
 
-  const participants = db.participants
-    .filter((p) => p.eventId === eventId)
-    .map((p) => sanitizeParticipant(p));
-  const summary = summarizeEventParticipants(participants);
+    const deleted = await Participant.findOneAndDelete({ id: participantId, eventId, editToken: token });
+    if (!deleted) return res.status(403).json({ error: "Invalid token or participant not found" });
 
-  res.json({ event, summary, participantCount: participants.length });
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/events/:eventId", async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const deleted = await Event.findOneAndDelete({ id: eventId });
+    if (!deleted) return res.status(404).json({ error: "Event not found" });
+
+    await Participant.deleteMany({ eventId });
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/events/:eventId/summary", async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await Event.findOne({ id: eventId }).lean();
+    if (!event) return res.status(404).json({ error: "Event not found" });
+
+    const participantsRaw = await Participant.find({ eventId }).lean();
+    const participants = participantsRaw.map(p => sanitizeParticipant(p));
+    const summary = summarizeEventParticipants(participants);
+
+    res.json({ event, summary, participantCount: participants.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("*", (_req, res) => {
