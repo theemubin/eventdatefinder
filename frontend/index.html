@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>When Are We Meeting?</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container" style="max-width: 900px;">
+      <header style="text-align: center; margin-bottom: 4rem;">
+        <h1 style="font-size: 4rem; font-weight: 800; letter-spacing: -0.05em; color: var(--text-main); margin-bottom: 0.5rem; line-height: 1;">When Are We Meeting?</h1>
+        <p style="font-size: 1.25rem; color: var(--text-muted); font-weight: 500;">Simplifying group coordination.</p>
+      </header>
+
+      <!-- Main Portal View -->
+      <div id="mainPortal" class="portal-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem;">
+        <div class="portal-card" id="cardActive" style="cursor: pointer; text-align: center; padding: 3rem 1.5rem; border-radius: 20px; background: white; border: 1px solid var(--border); box-shadow: var(--shadow); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">🌐</div>
+          <h3 style="font-size: 1.25rem; font-weight: 700;">Active Events</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">Browse and join existing meetings.</p>
+        </div>
+        
+        <div class="portal-card" id="cardCreate" style="cursor: pointer; text-align: center; padding: 3rem 1.5rem; border-radius: 20px; background: var(--primary); color: white; border: 1px solid var(--primary); box-shadow: var(--shadow); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">✨</div>
+          <h3 style="font-size: 1.25rem; font-weight: 700;">Create New</h3>
+          <p style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.5rem;">Start a fresh scheduling poll.</p>
+        </div>
+
+        <div class="portal-card" id="cardJoin" style="cursor: pointer; text-align: center; padding: 3rem 1.5rem; border-radius: 20px; background: white; border: 1px solid var(--border); box-shadow: var(--shadow); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">🔑</div>
+          <h3 style="font-size: 1.25rem; font-weight: 700;">Join by Code</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;">Enter a private event ID.</p>
+        </div>
+      </div>
+
+      <!-- Active Events View (Hidden) -->
+      <section id="viewActive" class="card hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+          <h2 style="margin: 0;">Active Events</h2>
+          <button class="secondary back-btn">← Back</button>
+        </div>
+        <div id="activeEventsList"></div>
+      </section>
+
+      <!-- Create View (Hidden) -->
+      <section id="viewCreate" class="card hidden" style="border-top: 6px solid var(--primary);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+          <h2 style="margin: 0;">Create a New Event</h2>
+          <button class="secondary back-btn">← Back</button>
+        </div>
+        <form id="createEventForm">
+          <label>
+            EVENT NAME
+            <input type="text" id="eventName" placeholder="e.g. Summer Trip 2026" required />
+          </label>
+          <label>
+            DESCRIPTION (OPTIONAL)
+            <textarea id="eventDescription" placeholder="Where are we going?" rows="3" style="resize: vertical;"></textarea>
+          </label>
+          <div class="row">
+            <label>
+              START DATE
+              <input type="date" id="allowedStartDate" required />
+            </label>
+            <label>
+              END DATE
+              <input type="date" id="allowedEndDate" required />
+            </label>
+          </div>
+          <button type="submit" class="primary" style="width: 100%; padding: 1rem; margin-top: 1.5rem; font-size: 1.1rem;">Launch Event</button>
+        </form>
+        <p id="createEventMessage" class="message" style="margin-top: 1rem; text-align: center;"></p>
+      </section>
+
+      <!-- Join View (Hidden) -->
+      <section id="viewJoin" class="card hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+          <h2 style="margin: 0;">Join Private Event</h2>
+          <button class="secondary back-btn">← Back</button>
+        </div>
+        <form id="joinByCodeForm">
+          <label>
+            YOUR NAME
+            <input type="text" id="joinUserName" placeholder="Enter your name" required />
+          </label>
+          <label>
+            EVENT ID / CODE
+            <input type="text" id="findEventId" placeholder="Paste code here" required />
+          </label>
+          <button type="submit" class="primary" style="width: 100%; padding: 1rem; margin-top: 1rem;">Join Event</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="/index.js" defer></script>
+  </body>
+</html>

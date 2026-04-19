@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Availability | When Are We Meeting?</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header" style="margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 1rem;">
+          <div>
+            <a href="/" class="back-link" style="text-decoration: none; color: var(--primary); font-weight: 500; display: block; margin-bottom: 0.5rem;">← Home</a>
+            <h1 id="eventTitle" style="margin: 0; font-size: 2.25rem; font-weight: 800; letter-spacing: -0.025em;">Loading...</h1>
+            <p id="eventMeta" style="margin-top: 0.5rem; color: var(--text-muted); font-weight: 500;"></p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="showAddDates" class="primary" style="padding: 0.75rem 1.25rem; border-radius: 12px; font-weight: 600;">Add My Dates</button>
+            <button id="deleteEventButton" class="danger-outline" style="padding: 0.75rem 1.25rem; border-radius: 12px; font-weight: 600;">Delete Event</button>
+          </div>
+        </div>
+        <p id="eventDescription" style="margin-top: 1rem; font-size: 1.1rem; max-width: 600px; color: var(--text-muted); line-height: 1.6;"></p>
+      </header>
+
+      <!-- Personal Availability Form (Modal/Overlay style) -->
+      <div id="formOverlay" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px); z-index: 150; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <section class="card" style="width: 100%; max-width: 550px; margin: 0; box-shadow: var(--shadow-xl); border: 1px solid var(--border);">
+          <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h2 style="margin:0;">Mark Your Availability</h2>
+            <button id="hideAddDates" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:2rem; line-height:1;">&times;</button>
+          </div>
+          <form id="participantForm">
+            <label>
+              Your name
+              <input type="text" id="participantName" required maxlength="80" placeholder="e.g. John Doe" />
+            </label>
+            <div class="row">
+              <label>
+                Start date
+                <input type="date" id="startDate" required />
+              </label>
+              <label>
+                End date
+                <input type="date" id="endDate" required />
+              </label>
+            </div>
+            <div id="dateSelectionHelp" class="message" style="margin: 1rem 0; padding: 0.75rem; background: #eff6ff; border-radius: 8px; color: var(--primary); font-size: 0.85rem;">
+              <strong>Pro-tip:</strong> Click or drag on cells to mark yourself as <em>unavailable</em> on those dates.
+            </div>
+            <div id="dateGrid" class="selection-grid" style="max-height: 300px; overflow-y: auto;"></div>
+            <div style="margin-top: 2rem; display: flex; align-items: center; gap: 1rem;">
+              <button type="submit" class="primary" style="flex: 1;">Save Changes</button>
+              <button type="button" id="deleteButton" class="danger hidden">Delete My Entry</button>
+            </div>
+          </form>
+          <p id="formMessage" class="message" style="margin-top: 1rem;"></p>
+          <div id="editLinkWrap" style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);"></div>
+        </section>
+      </div>
+
+      <div class="dashboard-layout" style="display: grid; grid-template-columns: 1fr 340px; gap: 2rem;">
+        <div class="main-content">
+          <!-- Visual Heatmap -->
+          <section class="card" style="margin-bottom: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+              <h2 style="margin: 0;">Availability Heatmap</h2>
+              <div id="heatmapLegend"></div>
+            </div>
+            <div id="allDates" class="heatmap-container"></div>
+          </section>
+
+          <!-- Planning Tool Results -->
+          <section id="planningResults" class="card hidden">
+            <h2 style="margin-bottom: 1.5rem;">Optimal Meeting Windows</h2>
+            <div id="searchResult"></div>
+          </section>
+        </div>
+
+        <aside class="sidebar">
+          <!-- Planning Tool Controls -->
+          <section class="card" style="margin-bottom: 2rem; background: #f8fafc; border: 1px solid var(--border);">
+            <h3 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem;">📅 Planning Tool</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">Identify overlapping dates for the whole group.</p>
+            <div class="finder-controls" style="display: flex; flex-direction: column; gap: 1.25rem;">
+              <label style="font-size: 0.8rem; font-weight: 600;">
+                SEARCH RANGE
+                <div class="row" style="margin-top: 4px;">
+                  <input type="date" id="searchStart" style="font-size: 0.85rem; padding: 0.5rem;" />
+                  <input type="date" id="searchEnd" style="font-size: 0.85rem; padding: 0.5rem;" />
+                </div>
+              </label>
+              <label style="font-size: 0.8rem; font-weight: 600;">
+                REQUIRED DURATION (DAYS)
+                <input type="number" id="searchDuration" min="1" max="30" value="1" style="margin-top: 4px; padding: 0.5rem;" />
+              </label>
+              <button id="findBestButton" class="secondary" style="width: 100%;">Find Common Dates</button>
+            </div>
+          </section>
+
+          <!-- Attendees -->
+          <section class="card">
+            <h3 style="margin-top: 0; margin-bottom: 1.5rem; font-size: 1.1rem;">👥 Participants</h3>
+            <div id="participants"></div>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <div id="modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px;">
+      <div class="card" style="max-width: 400px; width: 100%; margin: 0;">
+        <h2 id="modalTitle">Date Details</h2>
+        <div id="modalContent"></div>
+        <button onclick="closeModal()" style="margin-top: 20px;">Close</button>
+      </div>
+    </div>
+
+
+    <script src="/event.js" defer></script>
+  </body>
+</html>
