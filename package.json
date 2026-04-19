@@ -1,0 +1,15 @@
+{
+  "name": "when-are-we-meeting",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "install-backend": "cd backend && npm install",
+    "postinstall": "npm run install-backend"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "nanoid": "^5.1.0"
+  }
+}
