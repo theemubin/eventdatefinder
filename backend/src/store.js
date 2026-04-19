@@ -27,11 +27,14 @@ export const Participant = mongoose.model("Participant", participantSchema);
 export async function connectDb() {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
-    console.warn("MONGODB_URI not set, using local dev DB");
-    // Fallback for local dev if they have mongo running
+    console.warn("⚠️ MONGODB_URI not set. Attempting to use local dev DB...");
     await mongoose.connect("mongodb://localhost:27017/whenarewemeeting");
   } else {
-    await mongoose.connect(uri);
+    const maskedUri = uri.replace(/\/\/(.*):(.*)@/, "//****:****@");
+    console.log(`📡 Connecting to MongoDB Atlas: ${maskedUri}`);
+    await mongoose.connect(uri, {
+      connectTimeoutMS: 10000, // 10s timeout
+    });
   }
-  console.log("Connected to MongoDB");
+  console.log("✅ Successfully connected to MongoDB");
 }
